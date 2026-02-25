@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgis/postgis:15-3.4
+    container_name: aip-postgres
+    environment:
+      POSTGRES_USER: aip_user
+      POSTGRES_PASSWORD: aip_password
+      POSTGRES_DB: aip_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./database/sample_data.sql:/docker-entrypoint-initdb.d/02-sample-data.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aip_user -d aip_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aip-network
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aip-backend
+    environment:
+      DATABASE_URL: postgresql://aip_user:aip_password@postgres:5432/aip_db
+      DEBUG: "false"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - aip-network
+
+  # PGAdmin for database management (optional)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: aip-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@aip.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - aip-network
+
+volumes:
+  postgres_data:
+
+networks:
+  aip-network:
+    driver: bridge
